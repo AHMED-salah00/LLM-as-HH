@@ -4,7 +4,10 @@ import os
 from pathlib import Path
 import subprocess
 from utils.utils import init_client
+from dotenv import load_dotenv
 
+load_dotenv()
+os.environ.get("HYDRA_FULL_ERROR")
 
 ROOT_DIR = os.getcwd()
 logging.basicConfig(level=logging.INFO)

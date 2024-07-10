@@ -127,6 +127,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+reevo_env/
 
 # Spyder project settings
 .spyderproject
@@ -172,3 +173,4 @@ venv
 *.DS_Store
 exp/*
 ablation/*
+cfg/config.yaml

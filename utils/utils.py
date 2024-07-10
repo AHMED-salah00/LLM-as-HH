@@ -6,6 +6,12 @@ import concurrent.futures
 import time
 import re
 import inspect
+from huggingface_hub import InferenceClient
+from dotenv import load_dotenv
+
+load_dotenv()
+os.environ.get("ZHIPU_AI_API_KEY")
+os.environ.get("LLAMA_API_KEY")
 
 def init_client(cfg):
     global client
@@ -19,14 +25,18 @@ def init_client(cfg):
         zhipu_api_key = os.getenv('ZHIPU_AI_API_KEY')
         client = ZhipuAI(api_key=zhipu_api_key)
     else:
-        from openai import OpenAI
-        # We use llama api here. See the available models at https://docs.llama-api.com/quickstart#available-models
+        # from openai import OpenAI
+        # # We use llama api here. See the available models at https://docs.llama-api.com/quickstart#available-models
+        # assert os.getenv('LLAMA_API_KEY') is not None, "Please set the environment variable LLAMA_API_KEY"
+        # client = OpenAI(
+        # api_key = os.getenv('LLAMA_API_KEY'),
+        # base_url = "https://api.llama-api.com"
+        # )
         assert os.getenv('LLAMA_API_KEY') is not None, "Please set the environment variable LLAMA_API_KEY"
-        client = OpenAI(
-        api_key = os.getenv('LLAMA_API_KEY'),
-        base_url = "https://api.llama-api.com"
+        client = InferenceClient(
+            "meta-llama/Meta-Llama-3-8B-Instruct",
+            token=os.getenv('LLAMA_API_KEY'),
         )
-        
 
 def file_to_string(filename):
     with open(filename, 'r') as file:
@@ -66,6 +76,23 @@ def extract_description(response: str) -> tuple[str, str]:
             break
     return desc_string
 
+def extract_messages(choices):
+    messages = []
+    current_message = ""
+    for choice_list in choices:
+        for choice in choice_list:
+            current_message += choice.delta.content
+    
+    # Create the final message dictionary
+    message_dict = {
+        "finish_reason": choices[-1][0].finish_reason if choices and choices[-1] else None,
+        "index": 0,
+        "logprobs": None,
+        "message": current_message
+    }
+    messages.append(message_dict)
+    
+    return messages
 
 def multi_chat_completion(messages_list: list[list[dict]], n, model, temperature):
     """
@@ -107,7 +134,7 @@ def multi_chat_completion(messages_list: list[list[dict]], n, model, temperature
     contents: list[str] = []
     for choice in choices:
         for c in choice:
-            contents.append(c.message.content)
+            contents.append(c['message'])
     return contents
 
 
@@ -115,7 +142,7 @@ def chat_completion(n: int, messages: list[dict], model: str, temperature: float
     """
     Generate n responses using OpenAI Chat Completions API
     """
-
+    
     for attempt in range(1000):
         try:
             if "gpt" in model:
@@ -124,6 +151,12 @@ def chat_completion(n: int, messages: list[dict], model: str, temperature: float
                 assert n == 1
                 if "GLM" in model:
                     response_cur = client.chat.completions.create(model=model, messages=messages, temperature=min(temperature, 1.))
+                elif "lama" in model:
+                    response_cur = []
+                    lama_messages = client.chat_completion(messages=messages, max_tokens=500, stream=True)
+                    for lama_message in lama_messages:
+                        response_cur.append(lama_message.choices)
+                    response_cur = extract_messages(response_cur)
                 else:
                     response_cur = client.chat.completions.create(model=model, messages=messages, temperature=temperature)
             break
@@ -133,9 +166,11 @@ def chat_completion(n: int, messages: list[dict], model: str, temperature: float
     if response_cur is None:
         logging.info("Code terminated due to too many failed attempts!")
         exit()
-            
-    return response_cur.choices
 
+    if "lama" in model:
+        return response_cur
+    else:
+        return response_cur.choices
 
 def extract_code_from_generator(content):
     """Extract code from the response of the code generator."""
